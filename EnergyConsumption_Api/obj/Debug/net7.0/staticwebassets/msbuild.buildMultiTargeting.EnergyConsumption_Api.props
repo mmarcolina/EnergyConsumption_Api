@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="..\build\EnergyConsumption_Api.props" />
+</Project>

@@ -25,7 +25,7 @@ namespace EnergyConsumption_Api.Controllers
         }
 
         [HttpGet]
-        public ActionResult<SteelDataDto> Get([FromBody] SteelDataDto steelDataDto)
+        public ActionResult<ReturnSteelDataDto> Get([FromQuery] SteelDataDto steelDataDto)
         {
             var sum = 0.0;
             var mean = 0.0;
@@ -43,11 +43,6 @@ namespace EnergyConsumption_Api.Controllers
             if (!string.IsNullOrEmpty(steelDataDto.Day_of_week))
             {
                 filteredData = filteredData.Where(d => d.Day_of_week == steelDataDto.Day_of_week);
-            }
-
-            if (!string.IsNullOrEmpty(steelDataDto.Load_Type))
-            {
-                filteredData = filteredData.Where(d => d.Load_Type == steelDataDto.Load_Type);
             }
 
             if (!string.IsNullOrEmpty(steelDataDto.Load_Type))
@@ -78,7 +73,15 @@ namespace EnergyConsumption_Api.Controllers
                         throw new Exception();
                 }
             }
-            return Ok(filteredData);
+            var response = new ReturnSteelDataDto
+            {
+                Sum = sum,
+                Mean = mean,
+                Median = median,
+                Min = min,
+                Max = max
+            };
+            return Ok(response);
         }
 
         private static double SumQueryResult(IEnumerable<SteelDataEntity> queryResult)
@@ -105,19 +108,21 @@ namespace EnergyConsumption_Api.Controllers
 
         private static double MedianQueryResult(IEnumerable<SteelDataEntity> queryResult)
         {
-            SortedList<double, string> results = new SortedList<double, string>();
+            var index = 0;
+            SortedList<int, double> results = new SortedList<int, double>();
             foreach (SteelDataEntity record in queryResult)
             {
-                results.Add(record.Usage_kWh, "");
+                results.Add(index, record.Usage_kWh);
+                index++;
             }
 
             double median;
             var count = results.Count();
             if (count % 2 == 0) {
-                median = results.ElementAt((count / 2) - 1).Key + results.ElementAt(count / 2).Key;
+                median = (results.ElementAt(count / 2).Value + results.ElementAt((count / 2) + 1).Value) / 2;
             } else
             {
-                median = results.ElementAt(count / 2).Key;
+                median = results.ElementAt((count + 1) / 2).Key;
             }
             return median;
         }
