@@ -4,6 +4,7 @@ using EnergyConsumption_Api.Repository;
 using System.Globalization;
 using EnergyConsumption_Api.Models;
 using EnergyConsumption_Api.Constants;
+using System.Diagnostics.Eventing.Reader;
 
 namespace EnergyConsumption_Api.Controllers
 {
@@ -25,13 +26,25 @@ namespace EnergyConsumption_Api.Controllers
         }
 
         [HttpGet]
-        public ActionResult<ReturnSteelDataDto> Get([FromQuery] SteelDataDto steelDataDto)
+        public ActionResult<ReturnSteelDataDto> Get([FromQuery] SteelDataDto steelDataDto, string startDate = "2018-01-01", 
+            string endDate = "2018-12-31")
         {
-            var sum = 0.0;
-            var mean = 0.0;
-            var median = 0.0;
-            var min = 0.0;
-            var max = 0.0;
+            double? sum = null;
+            double? mean = null;
+            double? median = null;
+            double? min = null;
+            double? max = null;
+            string? messages = null;
+
+            if (!string.IsNullOrEmpty(steelDataDto.StartDate.ToString()))
+            {
+                steelDataDto.StartDate = DateTime.Parse(startDate, CultureInfo.InvariantCulture);
+            }
+
+            if (!string.IsNullOrEmpty(steelDataDto.EndDate.ToString()))
+            {
+                steelDataDto.EndDate = DateTime.Parse(endDate, CultureInfo.InvariantCulture);
+            }
 
             var filteredData = _steelDataEntity.Where(d => d.date >= steelDataDto.StartDate && d.date <= steelDataDto.EndDate);
 
@@ -49,82 +62,132 @@ namespace EnergyConsumption_Api.Controllers
             {
                 filteredData = filteredData.Where(d => d.Load_Type == steelDataDto.Load_Type);
             }
-
-            foreach (var operation in steelDataDto.Operation)
+            if (steelDataDto.Operation == null || steelDataDto.Operation.Length == 0)
             {
-                switch (operation)
+                messages = EnergyConsumptionApiConstants.NO_OPERATION_SELECTED;
+            } else
+            {
+                foreach (var operation in steelDataDto.Operation)
                 {
-                    case EnergyConsumptionApiConstants.SUM:
-                        sum = SumQueryResult(filteredData);
-                        break;
-                    case EnergyConsumptionApiConstants.MEAN:
-                        mean = AverageQueryResult(filteredData);
-                        break;
-                    case EnergyConsumptionApiConstants.MEDIAN:
-                        median = MedianQueryResult(filteredData);
-                        break;
-                    case EnergyConsumptionApiConstants.MIN:
-                        min = filteredData.Min(d => d.Usage_kWh);
-                        break;
-                    case EnergyConsumptionApiConstants.MAX:
-                        max = filteredData.Max(d => d.Usage_kWh);
-                        break;
-                    default:
-                        throw new Exception();
+                    switch (operation)
+                    {
+                        case EnergyConsumptionApiConstants.SUM:
+                            sum = SumQueryResult(filteredData);
+                            break;
+                        case EnergyConsumptionApiConstants.MEAN:
+                            mean = AverageQueryResult(filteredData);
+                            break;
+                        case EnergyConsumptionApiConstants.MEDIAN:
+                            median = MedianQueryResult(filteredData);
+                            break;
+                        case EnergyConsumptionApiConstants.MIN:
+                            try
+                            {
+                                min = filteredData.Min(d => d.Usage_kWh);
+                            } catch
+                            {
+                                min = EnergyConsumptionApiConstants.OUT_OF_RANGE;
+                                throw new InvalidOperationException();
+                            }
+                            
+                            break;
+                        case EnergyConsumptionApiConstants.MAX:
+                            try
+                            {
+                                max = filteredData.Max(d => d.Usage_kWh);
+                            } catch
+                            {
+                                min = EnergyConsumptionApiConstants.OUT_OF_RANGE;
+                                throw new InvalidOperationException();
+                            }
+                            break;
+                        default:
+                            break;
+
+                    }
                 }
             }
-            var response = new ReturnSteelDataDto
+
+            var response = new ReturnSteelDataDto();
+
+            if (sum == EnergyConsumptionApiConstants.OUT_OF_RANGE || mean == EnergyConsumptionApiConstants.OUT_OF_RANGE || median == EnergyConsumptionApiConstants.OUT_OF_RANGE || min == EnergyConsumptionApiConstants.OUT_OF_RANGE || max == EnergyConsumptionApiConstants.OUT_OF_RANGE)
             {
-                Sum = sum,
-                Mean = mean,
-                Median = median,
-                Min = min,
-                Max = max
-            };
+                response.Messages = EnergyConsumptionApiConstants.INVALID_RANGE;
+            } else
+            {
+                response.Sum = sum;
+                response.Mean = mean;
+                response.Median = median;
+                response.Min = min;
+                response.Max = max;
+                response.Messages = messages;
+            }
+
             return Ok(response);
         }
 
         private static double SumQueryResult(IEnumerable<SteelDataEntity> queryResult)
         {
              double sum = 0.0;
-            foreach(SteelDataEntity record in queryResult)
+            if(queryResult == null || queryResult.Count() >= 1)
             {
-                sum += record.Usage_kWh;
+                foreach (SteelDataEntity record in queryResult)
+                {
+                    sum += record.Usage_kWh;
+                }
+                return sum;
+            } else
+            {
+                return EnergyConsumptionApiConstants.OUT_OF_RANGE;
             }
-            return sum;
+            
         }
 
         private static double AverageQueryResult(IEnumerable<SteelDataEntity> queryResult)
         {
             double sum = 0.0;
             var count = 0;
-            foreach (SteelDataEntity record in queryResult)
+            if (queryResult == null || queryResult.Count() >= 1)
             {
-                sum += record.Usage_kWh;
-                count++;
+                foreach (SteelDataEntity record in queryResult)
+                {
+                    sum += record.Usage_kWh;
+                    count++;
+                }
+                return (sum / count);
+            } else
+            {
+                return EnergyConsumptionApiConstants.OUT_OF_RANGE;
             }
-            return (sum/count);
         }
 
         private static double MedianQueryResult(IEnumerable<SteelDataEntity> queryResult)
         {
             var index = 0;
             SortedList<int, double> results = new SortedList<int, double>();
-            foreach (SteelDataEntity record in queryResult)
+            if (queryResult == null || queryResult.Count() >= 1)
             {
-                results.Add(index, record.Usage_kWh);
-                index++;
-            }
+                foreach (SteelDataEntity record in queryResult)
+                {
+                    results.Add(index, record.Usage_kWh);
+                    index++;
+                }
 
-            double median;
-            var count = results.Count();
-            if (count % 2 == 0) {
-                median = (results.ElementAt(count / 2).Value + results.ElementAt((count / 2) + 1).Value) / 2;
+                double median;
+                var count = results.Count();
+                if (count % 2 == 0)
+                {
+                    median = (results.ElementAt(count / 2).Value + results.ElementAt((count / 2) + 1).Value) / 2;
+                }
+                else
+                {
+                    median = results.ElementAt((count + 1) / 2).Key;
+                }
+                return median;
             } else
             {
-                median = results.ElementAt((count + 1) / 2).Key;
+                return EnergyConsumptionApiConstants.OUT_OF_RANGE;
             }
-            return median;
         }
 
     }
